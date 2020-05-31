@@ -335,21 +335,52 @@ DSymbol*[] getSymbolsByTokenChain(T)(Scope* completionScope,
 					break loop;
 			}
 
-			//trace("looking for ", tokens[i].text, " in ", symbols[0].name);
-			symbols = symbols[0].getPartsByName(internString(tokens[i].text));
+                        void trySwapWithType(size_t i) {
+                            if (shouldSwapWithType(completionType, symbols[0].kind, i, tokens.length - 1))
+                            {
+				symbols = symbols[0].type is null || symbols[0].type is symbols[0] ? [] : [symbols[0].type];
+                            }
+                        }
+
+                        bool tryFollowField() {
+                            //trace("looking for ", tokens[i].text, " in ", symbols[0].name);
+                            auto res = symbols[0].getPartsByName(internString(tokens[i].text));
+                            if (res.length > 0) {
+                                symbols = res;
+                                return true;
+                            }
+                            return false;
+                        }
+
+                        bool followAnyEponymous() {
+                            if (symbols[0].kind != CompletionKind.templateName) return false;
+
+                            // TODO: internString on the name?
+                            auto res = symbols[0].getPartsByName(symbols[0].name);
+                            if(res.length == 0) return false;
+
+                            symbols = res;
+                            trySwapWithType(i-1);
+                            return true;
+                        }
+
+                        if(!tryFollowField()) {
+                            // Perhaps we should retroactively resolve an eponymous template first?
+                            if(!followAnyEponymous() || !tryFollowField()) {
+                                // UFCS:
+                                symbols = completionScope.getSymbolsByNameAndCursor(stringToken(tokens[i]), cursorPosition);
+                            }
+                        }
 			//trace("symbols: ", symbols.map!(a => a.name));
 			filterProperties();
 			if (symbols.length == 0)
 			{
-				//trace("Couldn't find it.");
-				break loop;
+                            //trace("Couldn't find it.");
+                            break loop;
 			}
-			if (shouldSwapWithType(completionType, symbols[0].kind, i, tokens.length - 1))
-			{
-				symbols = symbols[0].type is null || symbols[0].type is symbols[0] ? [] : [symbols[0].type];
-				if (symbols.length == 0)
-					break loop;
-			}
+                        trySwapWithType(i);
+                        if (symbols.length == 0)
+                            break loop;
 			if ((symbols[0].kind == CompletionKind.aliasName
 				|| symbols[0].kind == CompletionKind.moduleName)
 				&& (completionType == CompletionType.identifiers
